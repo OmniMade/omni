@@ -40,7 +40,8 @@ sessions or harness-specific state beyond an opaque session reference.
 | Live fan-out      | `apps/server`   | Persist AEP events, push to subscribed UI clients       |
 | Host channel      | both            | Outbound WSS: command/event envelopes, acks, reconnect  |
 | Executor          | `apps/hostd`    | Spawn/supervise harness processes (process groups), cancel with escalation |
-| Worktree manager  | `apps/hostd`    | Create/clean per-run git worktrees and branches         |
+| Workspace manager| `apps/hostd`    | Clone/adopt/sync workspace checkouts (`src/workspace/`), progress + status reports |
+| Worktree manager  | `apps/hostd`    | Create/clean per-run git worktrees and branches (F006) |
 | Harness adapters  | `apps/hostd`    | Translate each harness CLI into the adapter SPI         |
 | Artifact collector| `apps/hostd`    | Capture diff, logs, test reports at run end             |
 | `packages/aep`    | shared          | Agent Event Protocol types + zod schemas (used by all three apps) |
@@ -167,17 +168,26 @@ One outbound WSS per host (`GET /api/v1/ws/host`), authenticated with the host
 credential issued at enrollment. Message envelopes both directions:
 
 - **host → server**: `hello` (auth), `host.status` (heartbeat: running runs,
-  harness inventory, disk), `event` (AEP), `result` (command ack/outcome).
+  harness inventory, disk), `event` (AEP), `result` (command ack/outcome),
+  `workspace.status` (F002: workspace phase transitions, progress, snapshots).
 - **server → host**: `cmd.start_run`, `cmd.send_message`, `cmd.cancel_run`,
-  `cmd.resolve_approval`, `cmd.workspace_clone` and `cmd.workspace_sync` (F002),
-  `cmd.list_sessions` (session discovery for attach/adopt, F010).
+  `cmd.resolve_approval`, `cmd.workspace_clone`, `cmd.workspace_sync`, and
+  `cmd.workspace_delete` (F002), `cmd.list_sessions` (session discovery for
+  attach/adopt, F010).
 
 Reliability: commands are persisted in the `host_commands` table (see
-[DATABASE](DATABASE.md)) with a per-host monotonic `seq`; the host acks each command
-after applying it, and unacked commands are re-sent on reconnect. Events carry
-per-run `seq` so the server can detect and request retransmission of gaps. Reconnect
+[DATABASE](DATABASE.md)) with a per-host monotonic `seq`. Commands enqueued
+while the host is connected are pushed to the live socket immediately — but
+only after its `hello` has been processed, so the reconnect replay (which
+re-sends everything unacked, in `seq` order) never duplicates a delivery. The
+host acks each command after applying it. Messages of one connection are
+applied server-side strictly in arrival order (workspace status reports are
+read-modify-write on one row and must not interleave). Events carry per-run
+`seq` so the server can detect and request retransmission of gaps. Reconnect
 uses exponential backoff + jitter. `hostd` keeps no supervision state in memory
-across restarts — the per-run journal below is the reconciliation source of truth.
+across restarts — the per-run journal below is the reconciliation source of
+truth, and workspace commands carry their full payload (repo URL, root path)
+so they stay self-contained across restarts.
 
 ## Run Journal & Crash Recovery
 
@@ -205,7 +215,9 @@ no-gaps-in-`seq` promise:
 - Worktrees make parallel runs in one repository conflict-free and give every run a
   clean, reviewable branch — this is what acceptance reviews diff against.
 - Until worktree support ships (F006), the executor runs directly in the workspace
-  root with a one-active-run-per-workspace lock.
+  root with a one-active-run-per-workspace lock; F002 maintains that single checkout
+  (clone or adopt, manual `Sync` = `git fetch --prune` + fast-forward when clean on
+  the default branch).
 - Cleanup: worktrees are removed after the task is accepted or the run is discarded;
   retention policy is an open question in F006.
 
@@ -254,7 +266,7 @@ omni/
 │   ├── server/            # control plane (Hono)
 │   │   └── src/{api,ws,db,domain,auth}/
 │   ├── hostd/             # host runtime (Bun)
-│   │   └── src/{channel,executor,worktree,artifact,harness}/
+│   │   └── src/{channel,workspace,executor,worktree,artifact,harness}/
 │   │       └── harness/{spi.ts, opencode/, claude/, codex/, fake/}
 │   └── web/               # Next.js UI
 │       └── src/{app,components,lib}/

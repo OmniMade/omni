@@ -13,10 +13,13 @@ apps/web/src/
 ├── app/                    # routes (server components for initial data)
 │   ├── (auth)/setup, login
 │   ├── hosts/              # host list + enrollment
-│   ├── workspaces/
+│   │   └── [id]/           # host detail: workspace management (F002)
+│   ├── workspaces/         # cross-host view (lands with F003's dispatch UI)
 │   ├── tasks/              # list + [id] detail
 │   └── runs/[id]/          # the run view — the core screen
 ├── components/
+│   ├── hosts/              # host rows, enrollment dialogs
+│   ├── workspaces/         # add-workspace dialog, workspace rows + activity log
 │   ├── chat/               # message stream, composer, event cards
 │   ├── approvals/          # approval cards (inline + global badge)
 │   └── artifacts/          # diff viewer, log viewer, test report

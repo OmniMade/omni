@@ -11,7 +11,7 @@ it exists to make that real, everything after it hardens and widens it.
 | ID    | Feature                                  | Status | Spec                                |
 | ----- | ---------------------------------------- | ------ | ----------------------------------- |
 | F001  | Host enrollment & live connection        | Done   | specs/F001-host-enrollment.md       |
-| F002  | Workspace management                     | In Progress | specs/F002-workspaces.md       |
+| F002  | Workspace management                     | Done   | specs/F002-workspaces.md            |
 | F003  | Interactive runs (OpenCode adapter)      | Draft  | specs/F003-interactive-runs.md      |
 | F004  | Approvals                                | Draft  | specs/F004-approvals.md             |
 | F005  | Artifacts & task acceptance              | Draft  | specs/F005-artifacts-acceptance.md  |

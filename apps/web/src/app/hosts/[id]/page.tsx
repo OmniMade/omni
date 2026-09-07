@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { AddWorkspaceDialog } from "@/components/workspaces/add-workspace-dialog";
 import { WorkspaceRow } from "@/components/workspaces/workspace-row";
@@ -36,7 +36,14 @@ export default function HostDetailPage() {
   useEffect(() => {
     if (workspacesQuery.data) useWorkspacesStore.getState().setAll(workspacesQuery.data);
   }, [workspacesQuery.data]);
-  const workspaces = useWorkspacesStore((s) => s.workspaces.filter((w) => w.hostId === id));
+  // Select the raw array (stable reference), then filter — a filtering selector
+  // would return a fresh array per call and trip useSyncExternalStore's
+  // getServerSnapshot caching requirement.
+  const allWorkspaces = useWorkspacesStore((s) => s.workspaces);
+  const workspaces = useMemo(
+    () => allWorkspaces.filter((w) => w.hostId === id),
+    [allWorkspaces, id],
+  );
 
   return (
     <AppShell>

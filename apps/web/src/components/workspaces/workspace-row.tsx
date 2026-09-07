@@ -143,7 +143,7 @@ function ActivityLog({ workspaceId }: { workspaceId: string }) {
       {events.map((event) => (
         <li key={event.id} className="flex gap-2 text-xs">
           <span className="w-16 shrink-0 tabular-nums text-zinc-600">
-            {new Date(event.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+            {new Date(event.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
           </span>
           <span className={cn("min-w-0 break-words", kindTone[event.kind] ?? "text-zinc-400")}>{event.message}</span>
         </li>

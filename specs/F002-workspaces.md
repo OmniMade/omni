@@ -66,12 +66,27 @@ feature maintains one clean checkout per workspace.
 
 ## Acceptance Criteria
 
-- [ ] Registering a public repo URL clones it on the host and shows branch + HEAD.
-- [ ] Registering an existing local path adopts it without copying files.
-- [ ] Sync updates HEAD after upstream commits; activity log shows the fetch.
-- [ ] A failed clone (bad URL) surfaces git's error in the UI and allows retry.
-- [ ] Delete is refused while runs reference the workspace, and never deletes an
+- [x] Registering a public repo URL clones it on the host and shows branch + HEAD.
+- [x] Registering an existing local path adopts it without copying files.
+- [x] Sync updates HEAD after upstream commits; activity log shows the fetch.
+- [x] A failed clone (bad URL) surfaces git's error in the UI and allows retry.
+- [x] Delete is refused while runs reference the workspace, and never deletes an
       adopted path.
+
+Verification (2026-09-07): unit 57/57 (`pnpm test`: aep 14, hostd 23 incl. 12
+fixture-repo git tests, server 7, api-client 4, web 9); integration 31/31 run
+three times (workspaces file: 9 tests driving the real WS host endpoint with a
+scripted ChannelClient); e2e 4/4 (`pnpm e2e`: F001 flows + F002 lifecycle with
+real hostd children against on-disk fixture repos — clone→ready→upstream
+commit→sync fast-forward→delete removes cloned files; bad-URL error→retry
+recovery; adopt in place survives deletion); typecheck + `next build` clean.
+Browser smoke in a phone-sized (390×844) viewport against `pnpm dev` with a
+real enrolled hostd: add host→online live; host page → Add workspace dialog →
+clone → ready live (branch/HEAD/size/rootPath); activity log recorded
+registration, clone, sync (fast-forward); Sync after an upstream commit moved
+HEAD live; delete removed the row live and the cloned directory from disk.
+The smoke caught and fixed a `getServerSnapshot` infinite loop on the host
+page (zustand selector returning a fresh filtered array per call).
 
 ## Implementation Decisions (2026-09-07)
 
@@ -113,6 +128,12 @@ feature maintains one clean checkout per workspace.
 - **Git execution**: `node:child_process` spawn of the host's `git` (no binary
   probing; failures surface as `error` with stderr). Workspace operations inside
   hostd serialize on a promise chain (one op at a time per host, commands queue).
+- **Live command delivery** (F001 gap surfaced by this feature): commands
+  enqueued while the host is connected are pushed to the live socket
+  immediately — gated on the connection having completed its `hello`, so the
+  reconnect replay never re-sends a seq the host already received. Host-channel
+  messages of one connection are applied server-side strictly in arrival order
+  (workspace reports read-modify-write one row and must not interleave).
 - **UI placement**: the host detail page `/hosts/[id]` owns the workspace list,
   add-workspace dialog, sync button, status badges, and the activity log (the
   F002 user flow opens "a host's page"); a cross-host workspaces page can come

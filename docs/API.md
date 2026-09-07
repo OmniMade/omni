@@ -47,10 +47,11 @@ beyond the `/v1` prefix and the AEP envelope's `v` field.
 ### Workspaces
 | Method | Path                      | Purpose                                  |
 | ------ | ------------------------- | ---------------------------------------- |
-| GET    | /workspaces               | List (per host)                          |
-| POST   | /workspaces               | Register repo on host → clone            |
-| POST   | /workspaces/:id/sync      | Fetch/prune the repo on the host         |
-| DELETE | /workspaces/:id           | Remove (blocked while runs are active)   |
+| GET    | /workspaces?hostId=       | List (optionally per host)               |
+| POST   | /workspaces               | Register repo on host: `{ hostId, repoUrl }` (clone) or `{ hostId, path }` (adopt existing checkout), optional `name` |
+| POST   | /workspaces/:id/sync      | Fetch/prune on the host; from `error` this retries the original clone/adopt |
+| GET    | /workspaces/:id/events    | Activity log (chronological tail, `limit` default 50, max 200) |
+| DELETE | /workspaces/:id           | Remove (blocked while runs are active; cloned directories are deleted on the host, adopted paths never) |
 
 ### Tasks
 | Method | Path                          | Purpose                                    |
@@ -88,5 +89,6 @@ beyond the `/v1` prefix and the AEP envelope's `v` field.
 | /api/v1/ws/host       | host credential | Host channel: commands ↓, `event`/`host.status`/`result` ↑ |
 | /api/v1/ws/ui         | admin session   | UI subscriptions: AEP events, run/host status changes       |
 
-The UI opens one `/api/v1/ws/ui` connection and subscribes/unsubscribes to run ids as the
-user navigates; commands are sent over REST, never over the UI socket.
+The UI opens one `/api/v1/ws/ui` connection and subscribes/unsubscribes to
+topics as the user navigates (`hosts`, `workspaces`); commands are sent over
+REST, never over the UI socket.

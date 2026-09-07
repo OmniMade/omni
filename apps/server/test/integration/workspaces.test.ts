@@ -303,7 +303,11 @@ describe("workspaces (Step 1)", () => {
       expect(row.lastSyncedAt).toBeTruthy();
 
       const syncCmd = host.commands.find((c) => c.type === "cmd.workspace_sync")!;
-      expect(syncCmd.payload).toEqual({ workspaceId: id, rootPath: "/home/me/.omni/workspaces/omni" });
+      expect(syncCmd.payload).toEqual({
+        workspaceId: id,
+        rootPath: "/home/me/.omni/workspaces/omni",
+        defaultBranch: "main",
+      });
 
       const events = await jsonFetch(server.baseUrl, `/api/v1/workspaces/${id}/events`, {
         cookie: admin.cookie(),

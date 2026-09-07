@@ -17,25 +17,33 @@ Risk concentrates in four places, and testing targets each directly:
 
 ## Test Levels
 
-- **Unit (vitest)** — pure logic: AEP/channel schemas (`packages/aep`), session
-  cookie signing and token hashing (`apps/server/test/unit`), backoff math +
-  config-file permissions + PATH detection (`apps/hostd`), UiSocket reconnect
-  semantics (`packages/api-client`), hosts store transitions (`apps/web`).
+- **Unit (vitest)** — pure logic: AEP/channel/workspace schemas (`packages/aep`),
+  session cookie signing and token hashing (`apps/server/test/unit`), backoff math +
+  config-file permissions + PATH detection + git workspace operations against
+  temp-dir fixture repos (`apps/hostd`), UiSocket reconnect semantics
+  (`packages/api-client`), hosts/workspaces store transitions (`apps/web`).
 - **Integration** — `apps/server/test/integration` against testcontainers
   PostgreSQL (one container per run, one database per test file): auth + hosts +
   enrollment token lifecycle, and the host channel — the real server WS
   endpoints driven by hostd's `ChannelClient` in-process (hello/heartbeat,
   supersede, fail-closed malformed messages, offline sweeper, reconnect replay,
-  UI socket fan-out, rotation kick).
+  UI socket fan-out, rotation kick), plus the workspace API lifecycle with a
+  scripted host (queued→cloning→ready over the channel, activity log, name
+  conflicts, sync guard and retry, delete cleanup rules, cross-host report
+  isolation).
 - **Adapter contract tests** — recorded fixture corpora per harness
   (`apps/hostd/src/harness/<name>/fixtures/`): raw CLI transcripts in, expected AEP
   event sequences out (ships with F003).
 - **E2E smoke** — `pnpm e2e` (`apps/e2e`): testcontainers PostgreSQL + the
   in-process server + **real hostd child processes** (the same entry point
   `bun build --compile` bundles): enroll → online → kill → offline → restart →
-  online → rotate (daemon exits instead of retrying), plus two hosts online
-  simultaneously. Later features extend this flow through
-  `packages/api-client`.
+  online → rotate (daemon exits instead of retrying), two hosts online
+  simultaneously, and the F002 workspace lifecycle — clone from an on-disk
+  fixture repo → ready → upstream commit → sync (fast-forward) → delete
+  (cloned files removed), failed clone surfaced with retry recovery, and adopt
+  in place (directory never deleted). Later features extend these flows through
+  `packages/api-client`; enroll + a ready workspace is the standard preamble
+  for F003's run e2e.
 - **Manual smoke checklist per real harness** — before releasing an adapter, run the
   real CLI path once on macOS and Linux (documented in the adapter's spec).
 
