@@ -1,0 +1,24 @@
+{
+  "name": "@omni/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "e2e": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@omni/aep": "workspace:*",
+    "@omni/api-client": "workspace:*",
+    "@omni/hostd": "workspace:*",
+    "@omni/server": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "testcontainers": "latest",
+    "tsx": "latest",
+    "typescript": "latest",
+    "vitest": "latest"
+  }
+}

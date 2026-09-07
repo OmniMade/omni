@@ -1,0 +1,40 @@
+# Minimal control-plane stack: PostgreSQL + the Omni server.
+# TLS termination is expected in front (tailscale serve / reverse proxy) —
+# see docs/ARCHITECTURE.md → Deployment.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: omni
+      POSTGRES_PASSWORD: ${OMNI_POSTGRES_PASSWORD:?set OMNI_POSTGRES_PASSWORD}
+      POSTGRES_DB: omni
+    volumes:
+      - omni-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U omni"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  server:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.server
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://omni:${OMNI_POSTGRES_PASSWORD}@postgres:5432/omni
+      AUTO_MIGRATE: "true"
+      PORT: "3000"
+      # Set for production: 32+ bytes hex (see apps/server/.env.example)
+      SESSION_SECRET: ${OMNI_SESSION_SECRET:?set OMNI_SESSION_SECRET}
+      # Public base URL printed in omni-hostd connect commands, e.g.
+      # PUBLIC_URL: https://omni.<tailnet>.ts.net
+    ports:
+      - "3000:3000"
+
+volumes:
+  omni-pgdata:

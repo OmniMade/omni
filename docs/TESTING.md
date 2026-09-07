@@ -17,18 +17,25 @@ Risk concentrates in four places, and testing targets each directly:
 
 ## Test Levels
 
-- **Unit (vitest)** — pure logic: AEP schemas, event sequencing, worktree/branch
-  naming, acceptance rules, adapter pure translation functions.
-- **Integration** — server API + PostgreSQL via testcontainers; hostd channel tests
-  running server and hostd in-process over a local WebSocket with the fake harness.
+- **Unit (vitest)** — pure logic: AEP/channel schemas (`packages/aep`), session
+  cookie signing and token hashing (`apps/server/test/unit`), backoff math +
+  config-file permissions + PATH detection (`apps/hostd`), UiSocket reconnect
+  semantics (`packages/api-client`), hosts store transitions (`apps/web`).
+- **Integration** — `apps/server/test/integration` against testcontainers
+  PostgreSQL (one container per run, one database per test file): auth + hosts +
+  enrollment token lifecycle, and the host channel — the real server WS
+  endpoints driven by hostd's `ChannelClient` in-process (hello/heartbeat,
+  supersede, fail-closed malformed messages, offline sweeper, reconnect replay,
+  UI socket fan-out, rotation kick).
 - **Adapter contract tests** — recorded fixture corpora per harness
   (`apps/hostd/src/harness/<name>/fixtures/`): raw CLI transcripts in, expected AEP
-  event sequences out. CI runs them offline; live-harness runs are a manual
-  pre-release step.
-- **E2E smoke** — `pnpm e2e`: compose (server + PostgreSQL + hostd with the fake
-  harness), then drive the full flow through `packages/api-client`: enroll →
-  workspace → task → dispatch → live events → mid-run message → approval → diff
-  artifact → acceptance. Asserts observable API/UI-serving behavior, not internals.
+  event sequences out (ships with F003).
+- **E2E smoke** — `pnpm e2e` (`apps/e2e`): testcontainers PostgreSQL + the
+  in-process server + **real hostd child processes** (the same entry point
+  `bun build --compile` bundles): enroll → online → kill → offline → restart →
+  online → rotate (daemon exits instead of retrying), plus two hosts online
+  simultaneously. Later features extend this flow through
+  `packages/api-client`.
 - **Manual smoke checklist per real harness** — before releasing an adapter, run the
   real CLI path once on macOS and Linux (documented in the adapter's spec).
 

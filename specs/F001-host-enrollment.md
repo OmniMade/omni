@@ -39,6 +39,10 @@ host channel protocol, and the `hostd` binary (Bun). No runs, no harnesses yet.
 - Hosts page lists hosts with online/offline status and last-seen time; a host can
   be renamed, its credential rotated, or the host deleted (only while no runs
   reference it — no runs exist yet, but the guard ships now).
+- hostd persists its credential in a config file (`~/.omni/hostd.json`) with 0600
+  permissions; system keychain is deferred post-v1 (owner decision 2026-09-06).
+- Heartbeat 30 s / offline after 3 missed intervals (≈90 s) ship as configurable
+  defaults and are tuned during dogfooding (owner decision 2026-09-06).
 
 ## Business Rules
 
@@ -67,16 +71,56 @@ host channel protocol, and the `hostd` binary (Bun). No runs, no harnesses yet.
 
 ## Acceptance Criteria
 
-- [ ] First-run setup creates the admin; a second call is rejected.
-- [ ] Enrolling a host via the printed command makes it appear online in the UI
+- [x] First-run setup creates the admin; a second call is rejected.
+- [x] Enrolling a host via the printed command makes it appear online in the UI
       within seconds.
-- [ ] Killing hostd flips the host to offline within ~90 s; restarting it restores
+- [x] Killing hostd flips the host to offline within ~90 s; restarting it restores
       online without re-enrollment.
-- [ ] A second host enrolls and both coexist (stable per-host channels).
-- [ ] Rotating a host credential forces re-enrollment; the old credential is
+- [x] A second host enrolls and both coexist (stable per-host channels).
+- [x] Rotating a host credential forces re-enrollment; the old credential is
       refused.
-- [ ] `bun build --compile` produces a standalone hostd binary for macOS (arm64)
+- [x] `bun build --compile` produces a standalone hostd binary for macOS (arm64)
       and Linux (x64/arm64).
+
+Verification (2026-09-06): unit 34/34, integration 22/22 (run twice), e2e 2/2
+(`apps/e2e` — enroll→online→kill→offline→restart→rotation + two-host coexistence);
+compile produced all three binaries and `omni-hostd-linux-x64 --version` runs;
+browser smoke in a phone-sized viewport: setup → add host → enrolled the compiled
+binary with the printed command → status flipped online live → killed daemon →
+offline live (also detected `opencode 1.18.25` on the real machine).
+
+## Implementation Decisions (2026-09-06)
+
+- **Admin sessions** are stateless HMAC-signed cookies (7-day TTL, `omni_session`);
+  no sessions table (keeps the schema as documented). `SESSION_SECRET` env pins
+  the key; unset → per-boot random + boot warning.
+- **Channel schemas** live in `packages/aep` (`channel.ts`); AEP event types join
+  them in F003. Server→host command envelopes accept any `cmd.*` string so old
+  hostd fail-acks unknown commands (`result` ok=false) instead of dying — no
+  replay storm. Host→server messages are a strict union: malformed → close 4001.
+- **F001 command set** is `cmd.ping` (liveness); it exists to exercise the queue
+  and replay machinery end-to-end.
+- **Close codes**: 4000 superseded, 4001 protocol violation, 4002 heartbeat
+  timeout, 4003 revoked (rotation/deletion).
+- **Rotation = revoke + fresh enrollment token**: `rotate-token` clears the host
+  credential, closes the live socket (4003), and returns a one-time token shown
+  once; the daemon treats handshake 401/403 as fatal (clear message, exit 1) and
+  never retries a rejected credential.
+- **Per-host seq assignment** is an atomic `UPDATE hosts SET command_seq =
+  command_seq + 1 RETURNING`; replay covers `pending` + `delivered` (sent but
+  unacked), never `acked`.
+- **Offline detection** is a server-side sweep (default every 10 s) over
+  `last_seen_at`; a clean socket close marks offline immediately.
+- **hostd runs on Bun but stays runtime-agnostic** (global fetch, `ws` client,
+  node:fs/os APIs), so tests and e2e spawn it under Node/tsx unchanged.
+  Credential file `~/.omni/hostd.json` (env `OMNI_HOSTD_CONFIG`), written 0600.
+- **Harness detection** in F001 is a lightweight PATH + `--version` probe
+  (`opencode`, `claude`, `codex`), cached 10 min; the adapter SPI lands in F003.
+- **Web dev shape**: Next dev on :3001 proxies `/api/*` (incl. WS) to the server
+  on :3000 (`allowedDevOrigins` covers 127.0.0.1/LAN); single-origin serving of
+  the built UI from the control plane is deferred to the first real Tailnet
+  deployment. Hand-rolled shadcn-style primitives (Button/Input/Badge/Dialog)
+  instead of pulling the shadcn CLI.
 
 ## Implementation Plan
 
@@ -112,13 +156,16 @@ host channel protocol, and the `hostd` binary (Bun). No runs, no harnesses yet.
 
 ## Test Plan
 
-Unit (token hashing/expiry, backoff math), integration (auth + token lifecycle +
-channel reconnect with testcontainers PG), E2E seed: `pnpm e2e` gains
-enroll→online→offline assertions (foundation for later features' e2e).
+Unit (token hashing/expiry, backoff math, session cookies, channel schemas,
+hostd config perms, UiSocket reconnect, hosts store) — `pnpm test`.
+Integration (auth + token lifecycle + channel reconnect with testcontainers PG;
+channel tests drive the real WS endpoints with hostd's ChannelClient in-process)
+— `pnpm test:integration` (22 tests). E2E: `pnpm e2e` runs enroll→online→offline
+→restart→rotation and two-host coexistence with real hostd child processes
+(foundation for later features' e2e). Browser smoke performed manually against
+`pnpm dev` (phone viewport, live status flips).
 
 ## Open Questions
 
-- Heartbeat interval/timeout tuning (30 s / 90 s proposed) — confirm during
-  dogfooding.
-- Should hostd store its credential in the system keychain instead of a config
-  file? (Proposed: config file with 0600 perms for v1.)
+None — resolved 2026-09-06 by the owner: credential storage is a 0600 config file
+for v1; heartbeat ships at 30 s / 3 missed intervals as configurable defaults.
