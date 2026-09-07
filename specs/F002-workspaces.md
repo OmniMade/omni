@@ -9,9 +9,9 @@ runs will later execute.
 ## Background
 
 Depends on F001 (enrolled hosts with a live channel). Introduces the `workspaces`
-table and workspace commands on the host channel. Runs (F003) target a workspace;
-worktree isolation arrives in F006, so v1 of this feature maintains one clean
-checkout per workspace.
+and `workspace_events` tables and workspace commands on the host channel. Runs
+(F003) target a workspace; worktree isolation arrives in F006, so v1 of this
+feature maintains one clean checkout per workspace.
 
 ## User Flow
 
@@ -40,6 +40,8 @@ checkout per workspace.
 - Private repos authenticate with the host's own git credentials (ssh-agent,
   `~/.git-credentials`, or deploy key) — Omni never stores repo credentials in v1.
 - One workspace operation (clone/sync) at a time per host; commands queue.
+- Sync is **manual only** (owner decision 2026-09-07): dispatch in F003 uses the
+  workspace's local state as-is; no automatic fetch before runs.
 
 ## Edge Cases
 
@@ -49,15 +51,18 @@ checkout per workspace.
   F006 worktrees are always created clean from a fetched ref regardless.
 - Repo default branch changes upstream → next sync updates the recorded default
   with a UI note.
-- Very large repos → clone runs detached; workspace shows `syncing` until done; UI
+- Very large repos → clone runs detached; workspace shows `cloning` until done; UI
   streams progress.
+- hostd dies mid-clone → the unacked clone command is replayed on reconnect; the
+  partial directory is removed and the clone restarts from scratch.
 
 ## API / Data Changes
 
-- Table: `workspaces` (see [docs/DATABASE.md](../docs/DATABASE.md)).
+- Tables: `workspaces`, `workspace_events` (see [docs/DATABASE.md](../docs/DATABASE.md)).
 - Endpoints: `GET/POST /workspaces`, `POST /workspaces/:id/sync`,
-  `DELETE /workspaces/:id`; channel commands `cmd.workspace_clone`,
-  `cmd.workspace_sync`.
+  `GET /workspaces/:id/events`, `DELETE /workspaces/:id`; channel commands
+  `cmd.workspace_clone`, `cmd.workspace_sync`, `cmd.workspace_delete`; host→server
+  `workspace.status` messages.
 
 ## Acceptance Criteria
 
@@ -68,33 +73,103 @@ checkout per workspace.
 - [ ] Delete is refused while runs reference the workspace, and never deletes an
       adopted path.
 
+## Implementation Decisions (2026-09-07)
+
+- **Status model**: `queued` (row created, command queued) → `cloning` (URL) or
+  `adopting` (existing path) → `ready`; `ready` → `syncing` → `ready`; any
+  operational state → `error` (retry re-enqueues the same command). Sync is only
+  accepted from `ready` (409 `WORKSPACE_NOT_READY` otherwise).
+- **Data model**: `workspaces` gains `origin` (`cloned`/`adopted`), `repo_url`
+  (nullable — an adopted repo may have no remote; filled from `origin` when
+  present), `current_branch`, `head`, `dirty`, `size_bytes`, `error`,
+  `last_synced_at` on top of the documented core columns. The activity log is a
+  new append-only `workspace_events` table (kind + message + jsonb data) served
+  by `GET /workspaces/:id/events` (chronological tail, `limit` default 50).
+- **Channel protocol**: `cmd.workspace_clone` payload carries
+  `{ workspaceId, name, mode: clone|adopt, repoUrl?, path? }` — hostd resolves
+  and reports back the real `rootPath` (the server never guesses host paths).
+  `cmd.workspace_sync` carries `{ workspaceId, rootPath }` so commands stay
+  self-contained across hostd restarts (hostd holds no workspace state in
+  memory). `cmd.workspace_delete` carries `{ workspaceId, rootPath, removeFiles }`
+  with `removeFiles = origin === "cloned"`. Progress/status flows host→server as
+  `workspace.status` messages (status + snapshot fields + message); the server
+  merges the row, appends a `workspace_events` entry, and broadcasts
+  `workspace.updated` on the UI socket (new `workspaces` topic).
+- **Sync semantics**: `git fetch --prune`, then fast-forward the checkout
+  (`merge --ff-only origin/<branch>`) only when on the default branch and clean;
+  a dirty checkout or a non-default branch is left untouched and reported.
+  Upstream default-branch change is detected with `git ls-remote --symref` and
+  updates the recorded default with an activity-log note.
+- **Naming**: name defaults from the repo URL's last path segment (`.git`
+  stripped) or the adopted path's basename, sanitized to the host-name pattern;
+  collisions return 409 `NAME_TAKEN` — no silent suffixing, pass an explicit name.
+- **hostd data dir**: `<omni-data>` is `~/.omni` (beside `hostd.json`), so clones
+  land in `~/.omni/workspaces/<name>`; `OMNI_HOSTD_DATA` overrides for tests and
+  big-disk hosts.
+- **Deletion guard**: `workspaceDeletionBlockedReason` ships as the same kind of
+  seam F001 used for hosts — trivially "no runs" until the `runs` table lands in
+  F003; deletion enqueues the channel command (best-effort file cleanup after
+  ack) and removes the row immediately.
+- **Git execution**: `node:child_process` spawn of the host's `git` (no binary
+  probing; failures surface as `error` with stderr). Workspace operations inside
+  hostd serialize on a promise chain (one op at a time per host, commands queue).
+- **UI placement**: the host detail page `/hosts/[id]` owns the workspace list,
+  add-workspace dialog, sync button, status badges, and the activity log (the
+  F002 user flow opens "a host's page"); a cross-host workspaces page can come
+  with F003's dispatch UI.
+
 ## Implementation Plan
 
-### Step 1: Workspace domain + API
-- **Goal:** CRUD, status model, channel commands defined in `packages/aep`-adjacent
-  protocol types.
-- **Scope:** `workspaces` table/migration, routes, command plumbing.
-- **Tests:** API integration tests incl. blocked delete.
-- **Verification:** workspace rows transition queued→cloning→ready via fake host.
+### Step 1: Workspace domain + API + channel protocol
+- **Goal:** `workspaces`/`workspace_events` schema + migration, `@omni/aep`
+  workspace schemas (REST DTO, channel commands, `workspace.status`, UI events),
+  domain functions, REST routes, channel wiring, api-client methods.
+- **Scope:** server app only; hostd still fail-acks the new commands (existing
+  F001 behavior).
+- **Tests:** aep schema unit tests; server integration driving the real WS host
+  endpoint with a scripted ChannelClient (queued→cloning→ready transitions,
+  activity log rows, duplicate-name 409, sync guard, blocked-delete seam).
+- **Verification:** `pnpm test`, `pnpm -F @omni/server test:integration`, typecheck.
 
 ### Step 2: hostd git operations
-- **Goal:** clone/adopt/fetch/prune with progress events and error capture.
-- **Scope:** `worktree/`-adjacent git module in hostd (single checkout mode).
-- **Tests:** unit tests against fixture repos created in temp dirs.
+- **Goal:** clone/adopt/fetch/prune with progress events, error capture, status
+  snapshots; command handling wired into the daemon.
+- **Scope:** `apps/hostd/src/workspace/` git module (single checkout mode),
+  serialized op queue, `workspace.status` reporting, `OMNI_HOSTD_DATA`.
+- **Tests:** hostd unit tests against fixture repos created in temp dirs (clone,
+  adopt incl. linked-worktree rejection + dirty warning, fetch+ff, default-branch
+  change, size walk, progress parsing).
 - **Verification:** real repo registered end-to-end on a dev host.
 
 ### Step 3: UI
-- **Goal:** add-workspace form, list with status badges, sync button, activity log.
-- **Tests:** component tests for status transitions.
-- **Verification:** full flow from phone-sized browser.
+- **Goal:** host detail page with add-workspace form, list with status badges,
+  sync button, activity log; live updates via the `workspaces` UI topic.
+- **Scope:** `/hosts/[id]` page, workspaces store, api-client already in Step 1,
+  host row link.
+- **Tests:** store component tests for status transitions.
+- **Verification:** full flow from a phone-sized browser.
+
+### Step 4: E2E + document sync
+- **Goal:** enroll→workspace-ready as the standard e2e preamble; documents
+  updated (DATABASE/API/ARCHITECTURE/TESTING/FRONTEND).
+- **Scope:** `apps/e2e` workspace lifecycle test with local fixture repos (clone
+  from path, upstream commit + sync, bad URL error + retry, adopt, delete).
+- **Verification:** `pnpm e2e` green; docs re-read for consistency.
 
 ## Test Plan
 
-Integration: workspace lifecycle over the channel with a local bare fixture repo.
-Unit: git command building, path/name validation. E2E: enroll→workspace-ready
-becomes the standard e2e preamble for F003+.
+Unit: git command building/progress parsing, name/URL/path validation
+(hostd + server), workspace store transitions (web). Integration: workspace
+lifecycle over the channel with a scripted fake host, API validation and guards.
+E2E: enroll→workspace-ready becomes the standard e2e preamble for F003+ (real
+hostd children against on-disk fixture repos — no network).
 
 ## Open Questions
 
-- Should sync run automatically before every dispatch (proposed: yes, cheap
-  `git fetch`) or stay manual?
+None — resolved 2026-09-07 by the owner: sync is manual only (no automatic
+fetch before dispatch; F003 uses the workspace's local state).
+
+## Tracking
+
+Branch `feat/f002-workspaces` → PR to `main` (GitHub mode; see Roadmap
+Tracking).

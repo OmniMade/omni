@@ -11,7 +11,7 @@ it exists to make that real, everything after it hardens and widens it.
 | ID    | Feature                                  | Status | Spec                                |
 | ----- | ---------------------------------------- | ------ | ----------------------------------- |
 | F001  | Host enrollment & live connection        | Done   | specs/F001-host-enrollment.md       |
-| F002  | Workspace management                     | Next   | specs/F002-workspaces.md            |
+| F002  | Workspace management                     | In Progress | specs/F002-workspaces.md       |
 | F003  | Interactive runs (OpenCode adapter)      | Draft  | specs/F003-interactive-runs.md      |
 | F004  | Approvals                                | Draft  | specs/F004-approvals.md             |
 | F005  | Artifacts & task acceptance              | Draft  | specs/F005-artifacts-acceptance.md  |
@@ -43,3 +43,14 @@ Status values:
 - **F010 (attach & adopt)** exists because the owner requires access to sessions
   Omni did not start. It can be scheduled any time after F003 — the SPI F003 ships
   is already attach-capable, so F010 adds no protocol rework.
+
+## Tracking
+
+GitHub mode (owner decision 2026-09-07). Each feature is developed on a branch
+`feat/F<nnn>-<slug>` cut from `main` and delivered as a pull request to `main`
+(one commit per implementation step, spec updated in the same PR). No CI checks
+are configured yet; "green" means the spec's recorded local verification
+(`pnpm test` / `test:integration` / `e2e` / `typecheck`). Solo repository without
+review requirements: the agent merges when green, unless the owner says
+otherwise for a specific PR. Force operations, branch deletion, releases, and
+deployments always need explicit per-action authorization.
