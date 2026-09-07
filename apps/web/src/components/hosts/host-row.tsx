@@ -2,6 +2,7 @@
 
 import type { EnrollmentInfo, HostSummary } from "@omni/api-client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -46,7 +47,9 @@ export function HostRow({ host }: { host: HostSummary }) {
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="truncate font-medium">{host.name}</span>
+            <Link href={`/hosts/${host.id}`} className="truncate font-medium hover:text-sky-300">
+              {host.name}
+            </Link>
             <Badge tone={statusTone[host.status]}>{statusText[host.status]}</Badge>
           </div>
           <p className="mt-1 text-xs text-zinc-500">
