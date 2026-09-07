@@ -15,19 +15,38 @@ export const CLOSE_CODE = {
  */
 export class HostRegistry {
   #conns = new Map<string, WSContext>();
+  #helloed = new Set<WSContext>();
 
   register(hostId: string, ws: WSContext): void {
     const existing = this.#conns.get(hostId);
     if (existing && existing !== ws) {
       existing.close(CLOSE_CODE.superseded, "superseded by newer connection");
+      this.#helloed.delete(existing);
     }
     this.#conns.set(hostId, ws);
+  }
+
+  /** The socket completed its hello — the reconnect replay has run. */
+  markHello(ws: WSContext): void {
+    this.#helloed.add(ws);
+  }
+
+  /**
+   * True when commands may be live-delivered to this host: a registered
+   * socket that has said hello. Before hello, a live send would race the
+   * reconnect replay (which would then re-send the same seq); commands for
+   * pre-hello sockets stay pending and the replay delivers them in order.
+   */
+  readyForCommands(hostId: string): boolean {
+    const ws = this.#conns.get(hostId);
+    return ws !== undefined && this.#helloed.has(ws);
   }
 
   /** True when the removed socket was the registered one. */
   unregister(hostId: string, ws: WSContext): boolean {
     if (this.#conns.get(hostId) !== ws) return false;
     this.#conns.delete(hostId);
+    this.#helloed.delete(ws);
     return true;
   }
 
@@ -39,6 +58,7 @@ export class HostRegistry {
     const ws = this.#conns.get(hostId);
     if (!ws) return false;
     this.#conns.delete(hostId);
+    this.#helloed.delete(ws);
     ws.close(code, reason);
     return true;
   }
@@ -46,6 +66,7 @@ export class HostRegistry {
   closeAll(): void {
     for (const ws of this.#conns.values()) ws.close(1001, "server shutting down");
     this.#conns.clear();
+    this.#helloed.clear();
   }
 }
 

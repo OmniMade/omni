@@ -18,6 +18,8 @@ export interface AppDeps {
   uiHub: UiHub;
   /** Re-fetch a host row and push it to UI sockets subscribed to "hosts". */
   broadcastHost(hostId: string): Promise<void>;
+  /** Re-fetch a workspace row and push it to UI sockets subscribed to "workspaces". */
+  broadcastWorkspace(workspaceId: string): Promise<void>;
 }
 
 export type { HostRegistry, UiHub };

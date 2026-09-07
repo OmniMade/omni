@@ -1,4 +1,12 @@
-import { hostSummarySchema, httpToWs, type HostSummary } from "@omni/aep";
+import {
+  hostSummarySchema,
+  workspaceEventSchema,
+  workspaceSummarySchema,
+  httpToWs,
+  type HostSummary,
+  type WorkspaceEvent,
+  type WorkspaceSummary,
+} from "@omni/aep";
 
 export class ApiError extends Error {
   constructor(
@@ -95,6 +103,50 @@ export class OmniClient {
     };
   }
 
+  async listWorkspaces(hostId?: string): Promise<WorkspaceSummary[]> {
+    const body = (await this.#json(
+      "GET",
+      `/api/v1/workspaces${hostId ? `?hostId=${encodeURIComponent(hostId)}` : ""}`,
+    )) as { workspaces: unknown };
+    return workspaceSummarySchema.array().parse(body.workspaces);
+  }
+
+  async createWorkspace(input: {
+    hostId: string;
+    repoUrl?: string;
+    path?: string;
+    name?: string;
+  }): Promise<WorkspaceSummary> {
+    const body = (await this.#json("POST", "/api/v1/workspaces", input)) as {
+      workspace: unknown;
+    };
+    return workspaceSummarySchema.parse(body.workspace);
+  }
+
+  /** Sync — or, when the workspace errored, retry the original registration. */
+  async syncWorkspace(workspaceId: string): Promise<WorkspaceSummary> {
+    const body = (await this.#json(
+      "POST",
+      `/api/v1/workspaces/${workspaceId}/sync`,
+    )) as { workspace: unknown };
+    return workspaceSummarySchema.parse(body.workspace);
+  }
+
+  async listWorkspaceEvents(
+    workspaceId: string,
+    limit?: number,
+  ): Promise<WorkspaceEvent[]> {
+    const body = (await this.#json(
+      "GET",
+      `/api/v1/workspaces/${workspaceId}/events${limit ? `?limit=${limit}` : ""}`,
+    )) as { events: unknown };
+    return workspaceEventSchema.array().parse(body.events);
+  }
+
+  async deleteWorkspace(workspaceId: string): Promise<void> {
+    await this.#json("DELETE", `/api/v1/workspaces/${workspaceId}`);
+  }
+
   async #json(method: string, path: string, body?: unknown): Promise<unknown> {
     const res = await this.fetchFn(`${this.baseUrl}${path}`, {
       method,
@@ -120,6 +172,6 @@ export class OmniClient {
 }
 
 export { httpToWs };
-export type { HostSummary };
+export type { HostSummary, WorkspaceEvent, WorkspaceSummary };
 export { UiSocket } from "./ui-socket";
 export type { WebSocketLike, SocketFactory } from "./ui-socket";

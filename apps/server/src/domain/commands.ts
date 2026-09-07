@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { ServerToHost } from "@omni/aep";
 import type { Db } from "../db/client";
 import { hosts, hostCommands, type HostCommandRow } from "../db/schema";
+import type { HostRegistry } from "../ws/registry";
 
 /**
  * Enqueue a command with the next per-host seq. The counter increment is a
@@ -24,6 +25,31 @@ export async function enqueueCommand(
     .values({ hostId, seq: bumped!.seq, type, payload: payload as object })
     .returning();
   return row!;
+}
+
+/**
+ * Enqueue a command and push it to the host's live socket when one exists;
+ * otherwise it stays pending and the reconnect replay delivers it. Marking the
+ * row delivered before sending keeps replay semantics unchanged (unacked
+ * commands are re-sent on reconnect, in seq order).
+ */
+export async function enqueueAndDeliverCommand(
+  db: Db,
+  registry: HostRegistry,
+  hostId: string,
+  type: string,
+  payload: unknown = {},
+): Promise<HostCommandRow> {
+  const row = await enqueueCommand(db, hostId, type, payload);
+  if (registry.readyForCommands(hostId)) {
+    const ws = registry.get(hostId)!;
+    await db
+      .update(hostCommands)
+      .set({ status: "delivered", deliveredAt: new Date() })
+      .where(eq(hostCommands.id, row.id));
+    ws.send(JSON.stringify({ v: 1, seq: row.seq, type: row.type, payload: row.payload } satisfies ServerToHost));
+  }
+  return row;
 }
 
 /**

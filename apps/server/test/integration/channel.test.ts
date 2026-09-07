@@ -81,7 +81,9 @@ describe("host channel (Step 3)", () => {
 
       const hosts = await waitFor(async () => {
         const list = await hostStatus(server, admin.cookie());
-        return list[0]?.status === "online" ? list : null;
+        // "online" is set on open; os/arch only arrive with the hello — wait
+        // for the hello to have been processed before asserting on it.
+        return list[0]?.status === "online" && list[0]?.os === hostInfo().os ? list : null;
       });
       expect(hosts[0]).toMatchObject({
         name: "macmini",

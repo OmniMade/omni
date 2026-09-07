@@ -17,7 +17,7 @@ describe("migrations & boot (Step 1)", () => {
     }
   });
 
-  it("creates the documented F001 tables with their key columns", async () => {
+  it("creates the documented tables with their key columns", async () => {
     const server = await startTestServer();
     try {
       const rows = await server.runtime.db.execute<{
@@ -33,13 +33,22 @@ describe("migrations & boot (Step 1)", () => {
       }
       // drizzle_migrations lives in its own schema, not public.
       expect(new Set(byTable.keys())).toEqual(
-        new Set(["users", "host_enrollments", "hosts", "host_commands"]),
+        new Set([
+          "users",
+          "host_enrollments",
+          "hosts",
+          "host_commands",
+          "workspaces",
+          "workspace_events",
+        ]),
       );
       expect(byTable.get("host_enrollments")).toContain("token_hash");
       expect(byTable.get("host_enrollments")).toContain("expires_at");
       expect(byTable.get("host_enrollments")).toContain("consumed_at");
       expect(byTable.get("hosts")).toContain("status");
       expect(byTable.get("host_commands")).toContain("seq");
+      expect(byTable.get("workspaces")).toContain("default_branch");
+      expect(byTable.get("workspace_events")).toContain("kind");
     } finally {
       await server.close();
     }

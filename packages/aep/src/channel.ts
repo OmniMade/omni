@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { PROTOCOL_VERSION } from "./version";
+import { workspaceStatusMessageSchema, workspaceSummarySchema } from "./workspace";
 
 /**
  * Host channel protocol (control plane ↔ host runtime), version 1.
@@ -8,7 +10,7 @@ import { z } from "zod";
  * `agent.message`, …) lands with F003 in `events.ts`.
  */
 
-export const PROTOCOL_VERSION = 1 as const;
+export { PROTOCOL_VERSION };
 
 /** Map an http(s) base URL to its ws(s) counterpart, trailing slash trimmed. */
 export function httpToWs(url: string): string {
@@ -93,6 +95,7 @@ export const hostToServerSchema = z.discriminatedUnion("type", [
   helloSchema,
   hostStatusSchema,
   commandResultSchema,
+  workspaceStatusMessageSchema,
 ]);
 export type HostToServer = z.infer<typeof hostToServerSchema>;
 
@@ -113,15 +116,20 @@ export const serverToHostSchema = z.object({
 });
 export type ServerToHost = z.infer<typeof serverToHostSchema>;
 
-/** Commands every F001 hostd understands. */
-export const knownCommandSchema = z.enum(["cmd.ping"]);
+/** Commands every hostd understands (F001 liveness + F002 workspaces). */
+export const knownCommandSchema = z.enum([
+  "cmd.ping",
+  "cmd.workspace_clone",
+  "cmd.workspace_sync",
+  "cmd.workspace_delete",
+]);
 export type KnownCommand = z.infer<typeof knownCommandSchema>;
 
 // ---------------------------------------------------------------------------
 // UI socket (server ↔ web UI)
 // ---------------------------------------------------------------------------
 
-export const uiTopicSchema = z.enum(["hosts"]);
+export const uiTopicSchema = z.enum(["hosts", "workspaces"]);
 export type UiTopic = z.infer<typeof uiTopicSchema>;
 
 export const uiClientMessageSchema = z.discriminatedUnion("type", [
@@ -133,5 +141,10 @@ export type UiClientMessage = z.infer<typeof uiClientMessageSchema>;
 export const uiServerEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("host.updated"), data: hostSummarySchema }),
   z.object({ type: z.literal("host.deleted"), data: z.object({ id: z.uuid() }) }),
+  z.object({
+    type: z.literal("workspace.updated"),
+    data: workspaceSummarySchema,
+  }),
+  z.object({ type: z.literal("workspace.deleted"), data: z.object({ id: z.uuid() }) }),
 ]);
 export type UiServerEvent = z.infer<typeof uiServerEventSchema>;

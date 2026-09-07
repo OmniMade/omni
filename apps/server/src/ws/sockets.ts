@@ -2,10 +2,11 @@ import { createNodeWebSocket } from "@hono/node-ws";
 import type { ServerType } from "@hono/node-server";
 import type { Hono } from "hono";
 import type { WSContext, WSEvents, WSMessageReceive } from "hono/ws";
-import { hostToServerSchema, uiClientMessageSchema } from "@omni/aep";
+import { hostToServerSchema, uiClientMessageSchema, type HostToServer } from "@omni/aep";
 import type { AppDeps } from "../app";
 import { requireHostCredential, requireUser } from "../api/middleware";
 import { applyHeartbeat, markHostOffline, markHostOnline, storeHostInfo } from "../domain/hosts";
+import { applyWorkspaceStatus } from "../domain/workspaces";
 import { applyCommandResult, replayUnackedCommands } from "../domain/commands";
 import { CLOSE_CODE } from "./registry";
 
@@ -45,6 +46,10 @@ export function registerWebSocket(app: Hono, deps: AppDeps): (server: ServerType
 function hostHandlers(hostId: string, deps: AppDeps): WSEvents {
   let helloSeen = false;
   let helloTimer: ReturnType<typeof setTimeout> | undefined;
+  // Messages of one connection are applied strictly in arrival order: two
+  // workspace.status reports must never interleave their read-modify-write
+  // of the same row (a late "cloning" would overwrite an early "ready").
+  let queue: Promise<void> = Promise.resolve();
   return {
     onOpen: (_event, ws) => {
       asyncSafe(async () => {
@@ -71,31 +76,9 @@ function hostHandlers(hostId: string, deps: AppDeps): WSEvents {
         return;
       }
       const msg = parsed.data;
-      asyncSafe(async () => {
-        try {
-          if (msg.type === "hello") {
-            helloSeen = true;
-            if (helloTimer) clearTimeout(helloTimer);
-            await storeHostInfo(deps.db, hostId, {
-              os: msg.os,
-              arch: msg.arch,
-              agent: msg.agent,
-              hostname: msg.hostname,
-            });
-            // Reconnect replay: everything not yet acked goes out again, in order.
-            await replayUnackedCommands(deps.db, hostId, (command) => {
-              ws.send(JSON.stringify(command));
-            });
-            await deps.broadcastHost(hostId);
-          } else if (msg.type === "host.status") {
-            await applyHeartbeat(deps.db, hostId, { harnesses: msg.harnesses });
-          } else {
-            await applyCommandResult(deps.db, hostId, msg.seq, msg.ok);
-          }
-        } catch (err) {
-          console.error(`host ${hostId}: message handling failed`, err);
-        }
-      })();
+      queue = queue.then(() => handleMessage(msg, ws)).catch((err) => {
+        console.error(`host ${hostId}: message handling failed`, err);
+      });
     },
     onClose: (_event, ws) => {
       if (helloTimer) clearTimeout(helloTimer);
@@ -108,6 +91,33 @@ function hostHandlers(hostId: string, deps: AppDeps): WSEvents {
       }
     },
   };
+
+  async function handleMessage(msg: HostToServer, ws: WSContext): Promise<void> {
+    if (msg.type === "hello") {
+      helloSeen = true;
+      if (helloTimer) clearTimeout(helloTimer);
+      await storeHostInfo(deps.db, hostId, {
+        os: msg.os,
+        arch: msg.arch,
+        agent: msg.agent,
+        hostname: msg.hostname,
+      });
+      // Reconnect replay: everything not yet acked goes out again, in order.
+      await replayUnackedCommands(deps.db, hostId, (command) => {
+        ws.send(JSON.stringify(command));
+      });
+      // Only now may commands be live-delivered (see HostRegistry).
+      deps.registry.markHello(ws);
+      await deps.broadcastHost(hostId);
+    } else if (msg.type === "host.status") {
+      await applyHeartbeat(deps.db, hostId, { harnesses: msg.harnesses });
+    } else if (msg.type === "workspace.status") {
+      const updated = await applyWorkspaceStatus(deps.db, hostId, msg);
+      if (updated) await deps.broadcastWorkspace(updated.id);
+    } else {
+      await applyCommandResult(deps.db, hostId, msg.seq, msg.ok);
+    }
+  }
 }
 
 function uiHandlers(deps: AppDeps): WSEvents {

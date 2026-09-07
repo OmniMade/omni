@@ -4,6 +4,7 @@ import {
   serverToHostSchema,
   type HostStatus,
   type ServerToHost,
+  type WorkspaceStatusMessage,
 } from "@omni/aep";
 
 /** What `hello` reports about the machine hostd runs on. */
@@ -90,6 +91,11 @@ export class ChannelClient {
 
   sendResult(seq: number, ok: boolean, error?: string): void {
     this.#send({ v: 1, type: "result", seq, ok, ...(error === undefined ? {} : { error }) });
+  }
+
+  /** Workspace report: phase transitions, progress, snapshots. */
+  sendWorkspaceStatus(message: Omit<WorkspaceStatusMessage, "v" | "type">): void {
+    this.#send({ v: 1, type: "workspace.status", ...message });
   }
 
   /** Intentional close (shutdown) — the daemon will not reconnect after it. */

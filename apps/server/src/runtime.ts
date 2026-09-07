@@ -12,6 +12,7 @@ import {
   markHostOffline,
   requireHost,
 } from "./domain/hosts";
+import { requireWorkspace, workspaceToDto } from "./domain/workspaces";
 import { CLOSE_CODE, HostRegistry, UiHub } from "./ws/registry";
 
 export interface StartOptions {
@@ -59,6 +60,13 @@ export async function startOmni(opts: StartOptions = {}): Promise<OmniRuntime> {
       uiHub.broadcastTopic("hosts", {
         type: "host.updated",
         data: hostToDto(host),
+      });
+    },
+    broadcastWorkspace: async (workspaceId) => {
+      const workspace = await requireWorkspace(handle.db, workspaceId);
+      uiHub.broadcastTopic("workspaces", {
+        type: "workspace.updated",
+        data: workspaceToDto(workspace),
       });
     },
   };
