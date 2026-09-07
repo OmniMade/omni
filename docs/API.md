@@ -9,12 +9,16 @@ beyond the `/v1` prefix and the AEP envelope's `v` field.
 
 ## Conventions
 
-- **Auth** — admin: username/password login → HttpOnly session cookie; first-run
+- **Auth** — admin: username/password login → HttpOnly session cookie (stateless,
+  HMAC-signed, 7-day TTL; set `SESSION_SECRET` for restart survival); first-run
   `POST /auth/setup` creates the account only while the `users` table is empty.
   Hosts: one-time enrollment token exchanged for a persistent credential via
-  `POST /hosts/enroll`; the credential authenticates the WS handshake.
+  `POST /hosts/enroll`; the credential authenticates the WS handshake
+  (`Authorization: Bearer …` at upgrade time).
 - **Errors** — `{ "error": { "code": "string", "message": "string", "details": {} } }`
   with appropriate HTTP status.
+- **Health** — `GET /healthz` (outside `/api/v1`, unauthenticated) returns
+  `{ "status": "ok" }` once the server is serving.
 - **Pagination** — cursor-based: `?after=<seq>` for events, `?cursor=<id>` +
   `?limit` for lists.
 - **IDs** — UUIDs in paths.

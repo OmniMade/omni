@@ -1,0 +1,35 @@
+{
+  "name": "@omni/hostd",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./channel": "./src/channel.ts",
+    "./config": "./src/config.ts",
+    "./daemon": "./src/daemon.ts",
+    "./detect": "./src/detect.ts",
+    "./version": "./src/version.ts"
+  },
+  "bin": {
+    "omni-hostd": "./src/index.ts"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "start": "tsx src/index.ts",
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "compile": "tsx scripts/compile.ts"
+  },
+  "dependencies": {
+    "@omni/aep": "workspace:*",
+    "ws": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/ws": "latest",
+    "tsx": "latest",
+    "typescript": "latest",
+    "vitest": "latest"
+  }
+}

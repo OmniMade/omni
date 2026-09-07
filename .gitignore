@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.next/
+out/
+bin/
+coverage/
+*.tsbuildinfo
+.env
+.env.local
+.omni-data/

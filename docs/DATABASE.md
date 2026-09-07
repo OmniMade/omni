@@ -22,8 +22,8 @@ hosts 1──* workspaces 1──* tasks 1──* runs 1──* run_events
 | Table              | Key columns                                                                 |
 | ------------------ | --------------------------------------------------------------------------- |
 | `users`            | id, username, password_hash (argon2), created_at                            |
-| `host_enrollments` | id, token_hash, expires_at, consumed_at (one-time enrollment tokens)        |
-| `hosts`            | id, name (unique), token_hash, status, harnesses jsonb, last_seen_at        |
+| `host_enrollments` | id, host_id → hosts, token_hash, expires_at, consumed_at (one-time enrollment tokens) |
+| `hosts`            | id, name (unique), token_hash, status (pending/online/offline), os, arch, agent, hostname, harnesses jsonb, last_seen_at, command_seq |
 | `host_commands`    | id, host_id → hosts, seq int (per-host monotonic), type, payload jsonb, status (pending/delivered/acked/failed), created_at, acked_at; unique (host_id, seq) |
 | `workspaces`       | id, host_id → hosts, name, repo_url, default_branch, root_path, status; unique (host_id, name) |
 | `tasks`            | id, workspace_id → workspaces, title, body, status (open/accepted/rejected/archived), acceptance jsonb (decision, note, run_id, decided_at) |
@@ -41,7 +41,12 @@ Design notes:
 - `runs.parent_run_id` records lineage for continue-in-place and harness handoff.
 - `host_commands` is the outbound queue behind "commands are queued in DB if the
   host is offline": the server enqueues each host command with a per-host monotonic
-  `seq`; the host acks after applying; unacked commands are re-sent on reconnect.
+  `seq`; the host acks after applying; unacked commands (pending or delivered)
+  are re-sent on reconnect. `hosts.command_seq` is the counter the enqueue
+  increments atomically (`UPDATE … RETURNING`) to keep `seq` gap-tolerant and
+  unique per host.
+- `hosts.os/arch/agent/hostname` come from the host's `hello` message;
+  `hosts.token_hash` is null until first enrollment and after rotation.
 - `runs.origin` distinguishes dispatched runs from adopted foreign sessions
   (`adopt`) and live-attached sessions (`attach` — cancel means detach, outcome
   `detached`).

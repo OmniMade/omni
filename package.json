@@ -1,0 +1,22 @@
+{
+  "name": "omni",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.25.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,magenta \"pnpm -F @omni/server dev\" \"pnpm -F @omni/web dev\"",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "test:integration": "pnpm -F @omni/server test:integration",
+    "e2e": "pnpm -F @omni/e2e e2e",
+    "typecheck": "pnpm -r typecheck",
+    "db:generate": "pnpm -F @omni/server db:generate",
+    "db:migrate": "pnpm -F @omni/server db:migrate"
+  },
+  "devDependencies": {
+    "concurrently": "latest"
+  }
+}
