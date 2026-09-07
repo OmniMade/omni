@@ -126,10 +126,15 @@ export const workspaceClonePayloadSchema = z.discriminatedUnion("mode", [
 ]);
 export type WorkspaceClonePayload = z.infer<typeof workspaceClonePayloadSchema>;
 
-/** `cmd.workspace_sync`: fetch (+ fast-forward when clean) an existing checkout. */
+/**
+ * `cmd.workspace_sync`: fetch (+ fast-forward when clean) an existing checkout.
+ * `defaultBranch` is the server's recorded value — hostd is stateless, so the
+ * comparison for "upstream default changed" happens against this.
+ */
 export const workspaceSyncPayloadSchema = z.object({
   workspaceId: z.uuid(),
   rootPath: z.string().min(1),
+  defaultBranch: z.string().nullable().optional(),
 });
 export type WorkspaceSyncPayload = z.infer<typeof workspaceSyncPayloadSchema>;
 

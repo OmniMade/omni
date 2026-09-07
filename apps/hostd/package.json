@@ -7,6 +7,8 @@
     "./channel": "./src/channel.ts",
     "./config": "./src/config.ts",
     "./daemon": "./src/daemon.ts",
+    "./workspace/git": "./src/workspace/git.ts",
+    "./workspace/ops": "./src/workspace/ops.ts",
     "./detect": "./src/detect.ts",
     "./version": "./src/version.ts"
   },

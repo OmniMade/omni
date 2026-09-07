@@ -1,11 +1,24 @@
 import { arch as osArch, homedir, hostname, platform } from "node:os";
 import { statfs } from "node:fs/promises";
 import type { HostStatus, ServerToHost } from "@omni/aep";
+import {
+  workspaceClonePayloadSchema,
+  workspaceDeletePayloadSchema,
+  workspaceSyncPayloadSchema,
+} from "@omni/aep";
 import { ChannelClient, type HostInfo } from "./channel";
 import type { HostdConfig } from "./config";
 import { HarnessCache } from "./detect";
 import { backoffDelayMs, sleep } from "./backoff";
 import { HOSTD_VERSION } from "./version";
+import {
+  adoptWorkspace,
+  cloneWorkspace,
+  defaultDataDir,
+  deleteWorkspaceFiles,
+  OpQueue,
+  syncWorkspace,
+} from "./workspace/ops";
 
 export interface DaemonOptions {
   heartbeatIntervalSec?: number;
@@ -54,6 +67,8 @@ interface RunOnceOutcome {
 export function runDaemon(config: HostdConfig, opts: DaemonOptions = {}): DaemonHandle {
   const heartbeatIntervalMs = (opts.heartbeatIntervalSec ?? 30) * 1000;
   const harnesses = new HarnessCache();
+  const workspaceOps = new OpQueue();
+  const dataDir = defaultDataDir();
   let stopped = false;
   let current: ChannelClient | null = null;
 
@@ -124,6 +139,79 @@ export function runDaemon(config: HostdConfig, opts: DaemonOptions = {}): Daemon
   function applyCommand(client: ChannelClient, command: ServerToHost): void {
     if (command.type === "cmd.ping") {
       client.sendResult(command.seq, true);
+      return;
+    }
+    if (command.type === "cmd.workspace_clone") {
+      const payload = workspaceClonePayloadSchema.safeParse(command.payload);
+      if (!payload.success) {
+        client.sendResult(command.seq, false, `invalid workspace_clone payload: ${payload.error.message}`);
+        return;
+      }
+      void workspaceOps
+        .run(async () => {
+          if (payload.data.mode === "clone") {
+            await cloneWorkspace(
+              { workspaceId: payload.data.workspaceId, name: payload.data.name, repoUrl: payload.data.repoUrl, dataDir },
+              (message) => client.sendWorkspaceStatus(message),
+            );
+          } else {
+            await adoptWorkspace(
+              { workspaceId: payload.data.workspaceId, path: payload.data.path },
+              (message) => client.sendWorkspaceStatus(message),
+            );
+          }
+        })
+        .then(
+          () => client.sendResult(command.seq, true),
+          (err) =>
+            client.sendResult(command.seq, false, err instanceof Error ? err.message : String(err)),
+        );
+      return;
+    }
+    if (command.type === "cmd.workspace_sync") {
+      const payload = workspaceSyncPayloadSchema.safeParse(command.payload);
+      if (!payload.success) {
+        client.sendResult(command.seq, false, `invalid workspace_sync payload: ${payload.error.message}`);
+        return;
+      }
+      void workspaceOps
+        .run(() =>
+          syncWorkspace(
+            {
+              workspaceId: payload.data.workspaceId,
+              rootPath: payload.data.rootPath,
+              recordedDefaultBranch: payload.data.defaultBranch,
+            },
+            (message) => client.sendWorkspaceStatus(message),
+          ),
+        )
+        .then(
+          () => client.sendResult(command.seq, true),
+          (err) =>
+            client.sendResult(command.seq, false, err instanceof Error ? err.message : String(err)),
+        );
+      return;
+    }
+    if (command.type === "cmd.workspace_delete") {
+      const payload = workspaceDeletePayloadSchema.safeParse(command.payload);
+      if (!payload.success) {
+        client.sendResult(command.seq, false, `invalid workspace_delete payload: ${payload.error.message}`);
+        return;
+      }
+      if (!payload.data.removeFiles) {
+        // Adopted workspace: Omni never deletes a path it did not create.
+        client.sendResult(command.seq, true);
+        return;
+      }
+      void workspaceOps
+        .run(async () => {
+          if (payload.data.rootPath) await deleteWorkspaceFiles(payload.data.rootPath);
+        })
+        .then(
+          () => client.sendResult(command.seq, true),
+          (err) =>
+            client.sendResult(command.seq, false, err instanceof Error ? err.message : String(err)),
+        );
       return;
     }
     // Fail-ack unknown commands so they are not replayed forever.

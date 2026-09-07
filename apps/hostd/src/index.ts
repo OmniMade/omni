@@ -16,6 +16,9 @@ Options:
   --token TOKEN           One-time enrollment token, connect only
   --config PATH           Config file (default: ~/.omni/hostd.json, env OMNI_HOSTD_CONFIG)
   --heartbeat-interval N  Seconds between heartbeats (default 30)
+
+Workspace clones live under ~/.omni/workspaces (env OMNI_HOSTD_DATA to move
+the whole data directory).
 `.trim();
 
 interface ParsedArgs {

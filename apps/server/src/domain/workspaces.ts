@@ -208,6 +208,7 @@ export async function syncWorkspace(
   await enqueueAndDeliverCommand(db, registry, row.hostId, "cmd.workspace_sync", {
     workspaceId: row.id,
     rootPath: row.rootPath,
+    defaultBranch: row.defaultBranch,
   });
   return row;
 }
